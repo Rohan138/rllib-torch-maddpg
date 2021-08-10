@@ -98,7 +98,7 @@ DEFAULT_CONFIG = with_common_config({
     # Weights for feature regularization for the actor
     "actor_feature_reg": 0.001,
     # If not None, clip gradients during optimization at this value
-    "grad_clip": 0.5,
+    "grad_clip": 100,
     # How many steps of the model to sample before learning starts.
     "learning_starts": 1024 * 25,
     # Update the replay buffer with this many samples at once. Note that this

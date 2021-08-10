@@ -85,7 +85,7 @@ def build_maddpg_models(policy: Policy,
     return policy.model
 
 
-class MADDPGTorchModel(DDPGTorchModel):
+class MADDPGTorchModel(TorchModelV2, nn.Module):
     '''
     Extension of TorchModelV2 for MADDPG
     Note that the critic takes in the joint state and action over all agents
@@ -100,7 +100,7 @@ class MADDPGTorchModel(DDPGTorchModel):
 
     def __init__(
             self,
-            obs_space: Box,
+            observation_space: Box,
             action_space: Box,
             num_outputs: int,
             model_config: ModelConfigDict,
@@ -112,15 +112,15 @@ class MADDPGTorchModel(DDPGTorchModel):
             critic_hidden_activation: str = "relu",
             twin_q: bool = False,
             add_layer_norm: bool = False):
-        DDPGTorchModel.__init__(self, obs_space, action_space, num_outputs,
-            model_config, name, actor_hiddens, actor_hidden_activation,
-            critic_hiddens, critic_hidden_activation, twin_q, add_layer_norm)
+        
+        nn.Module.__init__(self)
+        TorchModelV2.__init__(self, observation_space, action_space, num_outputs, model_config, name)
 
-        self.action_dim = np.product(self.action_space.shape)
+        self.action_dim = np.prod(action_space.shape)
 
         # Build the policy network.
         self.policy_model = nn.Sequential()
-        ins = num_outputs
+        ins = np.prod(observation_space.shape)
         self.obs_ins = ins
         activation = get_activation_fn(
             actor_hidden_activation, framework="torch")
@@ -246,6 +246,7 @@ class MADDPGTorchModel(DDPGTorchModel):
         out = self.policy_model(model_out)
         dist = torch.distributions.RelaxedOneHotCategorical(temperature=1.0, logits=out)
         action = dist.sample()
+        entropy = dist.base_dist._categorical.entropy()
         return action
 
     def policy_variables(self, as_dict: bool = False

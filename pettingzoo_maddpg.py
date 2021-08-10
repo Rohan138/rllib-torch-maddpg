@@ -1,3 +1,4 @@
+import numpy as np
 import ray
 from ray import tune
 from ray.tune.registry import register_trainable, register_env
@@ -40,7 +41,7 @@ def parse_args():
     parser.add_argument("--num-episodes", type=int, default=60000,
                         help="number of episodes")
     parser.add_argument("--num-adversaries", type=int, default=0,
-                        help="number of adversaries")
+                        help="number of adversarial agents")
     parser.add_argument("--good-policy", type=str, default="maddpg",
                         help="policy for good agents")
     parser.add_argument("--adv-policy", type=str, default="maddpg",

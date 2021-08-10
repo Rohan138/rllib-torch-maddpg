@@ -1,5 +1,3 @@
-import ray
-from copy import deepcopy
 import logging
 from gym.spaces import Box, Discrete
 import numpy as np
@@ -50,12 +48,13 @@ def build_maddpg_models_and_action_dist(policy: Policy, obs_space, action_space,
 
 
 def maddpg_actor_critic_loss(policy: Policy, model: ModelV2, _, train_batch: SampleBatch) -> TensorType:
-    if policy.td_error is None:
+    if not hasattr(policy, "td_error") or policy.td_error is None:
         policy.actor_loss = torch.zeros(len(train_batch))
         policy.critic_loss = torch.zeros(len(train_batch))
         policy.td_error = torch.zeros(len(train_batch))
         policy.q_t = torch.zeros(len(train_batch))
         return policy.actor_loss, policy.critic_loss
+    
     twin_q = policy.config["twin_q"]
     gamma = policy.config["gamma"]
     n_step = policy.config["n_step"]
@@ -75,9 +74,9 @@ def maddpg_actor_critic_loss(policy: Policy, model: ModelV2, _, train_batch: Sam
         "is_training": True,
     }
 
-    model_out_t, _ = policy.model(input_dict, [], None)
+    model_out_t, _ = model(input_dict, [], None)
 
-    policy_t = policy.model.get_policy_output(model_out_t)
+    policy_t = model.get_policy_output(model_out_t)
 
     target_model_out_tp1, _ = policy.target_model(input_dict_next, [], None)
 
@@ -123,9 +122,9 @@ def maddpg_actor_critic_loss(policy: Policy, model: ModelV2, _, train_batch: Sam
             for obs_space, act_space in zip(policy.obs_space_n, policy.act_space_n)
             ]
         # Get states from preprocessors
-        model_out_n = [model({SampleBatch.OBS: obs, "is_training": True}, [], None)[0] for \
+        model_out_n = [model.forward({SampleBatch.OBS: obs, "is_training": True}, [], None)[0] for \
             model, obs in zip(model_n, obs_n)]
-        model_out_next_n = [model({SampleBatch.OBS: next_obs, "is_training": True}, [], None)[0] for \
+        model_out_next_n = [model.forward({SampleBatch.OBS: next_obs, "is_training": True}, [], None)[0] for \
             model, next_obs in zip(model_n, next_obs_n)]
     else:
         model_out_n = obs_n
@@ -185,10 +184,10 @@ def maddpg_actor_critic_loss(policy: Policy, model: ModelV2, _, train_batch: Sam
 
     # Add l2-regularization if required.
     if l2_reg is not None:
-        for name, var in policy.model.policy_variables(as_dict=True).items():
+        for name, var in model.policy_variables(as_dict=True).items():
             if "bias" not in name:
                 actor_loss += (l2_reg * l2_loss(var))
-        for name, var in policy.model.q_variables(as_dict=True).items():
+        for name, var in model.q_variables(as_dict=True).items():
             if "bias" not in name:
                 critic_loss += (l2_reg * l2_loss(var))
     
@@ -217,7 +216,7 @@ def build_maddpg_stats(policy: Policy, batch: SampleBatch) -> Dict[str, TensorTy
 
 def postprocess_nstep_and_get_done(policy: Policy, batch: SampleBatch,
                                    other_agent_batches=None, episode=None):
-    if policy.td_error is not None: # Loss has been initialized
+    if hasattr(policy, "td_error") and policy.td_error is not None: # Loss has been initialized
         get_done_from_info = np.vectorize(lambda info: info.get("done", False))
         batch[SampleBatch.DONES] = get_done_from_info(batch[SampleBatch.INFOS])
 
@@ -234,11 +233,7 @@ def postprocess_nstep_and_get_done(policy: Policy, batch: SampleBatch,
 
 
 def make_maddpg_optimizers(policy: Policy, config: TrainerConfigDict) -> Tuple[LocalOptimizer]:
-    if policy.config["learn_other_policies"] is None:
-        return make_ddpg_optimizers(policy, config)
-    else:
-        # Implement policy inference for other agents from section 4.2 from Lowe et al. 2017
-        raise NotImplementedError
+    return make_ddpg_optimizers(policy, config)
 
 
 def before_init_fn(policy: Policy, obs_space, action_space, config: TrainerConfigDict) -> None:
@@ -252,9 +247,24 @@ def before_init_fn(policy: Policy, obs_space, action_space, config: TrainerConfi
 
 
 class ComputeTDErrorMixin:
-    def __init__(self):
-        # Only define property here for stats; compute it in loss
-        self.td_error = None
+    def __init__(self, loss_fn):
+        def compute_td_error(obs_t, act_t, rew_t, obs_tp1, done_mask):
+            input_dict = self._lazy_tensor_dict(
+                SampleBatch({
+                    SampleBatch.CUR_OBS: obs_t,
+                    SampleBatch.ACTIONS: act_t,
+                    SampleBatch.REWARDS: rew_t,
+                    SampleBatch.NEXT_OBS: obs_tp1,
+                    SampleBatch.DONES: done_mask,
+                }))
+            # Do forward pass on loss to update td errors attribute
+            loss_fn(self, self.model, None, input_dict)
+
+            # Self.td_error is set within actor_critic_loss call.
+            return self.td_error
+
+        self.compute_td_error = compute_td_error
+
 
 class SetJointSpacesMixin:
     def __init__(self, config: TrainerConfigDict):
@@ -270,8 +280,8 @@ class SetJointSpacesMixin:
         ]
 
 def setup_late_mixins(policy: Policy, obs_space, action_space, config: TrainerConfigDict) -> None:
+    ComputeTDErrorMixin.__init__(policy, maddpg_actor_critic_loss)
     TargetNetworkMixin.__init__(policy)
-    ComputeTDErrorMixin.__init__(policy)
     SetJointSpacesMixin.__init__(policy, config)
 
 def get_default_config():
