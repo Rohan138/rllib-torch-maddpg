@@ -214,12 +214,8 @@ def build_maddpg_stats(policy: Policy, batch: SampleBatch) -> Dict[str, TensorTy
     return stats
 
 
-def postprocess_nstep_and_get_done(policy: Policy, batch: SampleBatch,
+def postprocess_nstep(policy: Policy, batch: SampleBatch,
                                    other_agent_batches=None, episode=None):
-    if hasattr(policy, "td_error") and policy.td_error is not None: # Loss has been initialized
-        get_done_from_info = np.vectorize(lambda info: info.get("done", False))
-        batch[SampleBatch.DONES] = get_done_from_info(batch[SampleBatch.INFOS])
-
     # N-step Q adjustments
     if policy.config["n_step"] > 1:
         _adjust_nstep(policy.config["n_step"], policy.config["gamma"],
@@ -295,7 +291,7 @@ MADDPGTorchPolicy = build_policy_class(
     loss_fn=maddpg_actor_critic_loss,
     get_default_config=get_default_config,
     stats_fn=build_maddpg_stats,
-    postprocess_fn=postprocess_nstep_and_get_done,
+    postprocess_fn=postprocess_nstep,
     action_distribution_fn=get_distribution_inputs_and_class,
     extra_grad_process_fn=apply_grad_clipping,
     optimizer_fn=make_maddpg_optimizers,

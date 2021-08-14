@@ -31,8 +31,6 @@ class MADDPGPostprocessing:
         #  supported now.
         sample_batch[SampleBatch.DONES] = self.get_done_from_info(
             sample_batch[SampleBatch.INFOS])
-        if(any(sample_batch[SampleBatch.DONES])):
-            breakpoint()
 
         # N-step Q adjustments
         if self.config["n_step"] > 1:
