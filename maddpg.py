@@ -20,6 +20,7 @@ from ray.rllib.policy.policy import Policy
 from ray.rllib.utils.typing import TrainerConfigDict
 from ray.rllib.policy.sample_batch import SampleBatch, MultiAgentBatch
 from ray.rllib.utils import merge_dicts
+from ray.rllib.utils.deprecation import DEPRECATED_VALUE
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -66,13 +67,15 @@ DEFAULT_CONFIG = with_common_config({
     "good_policy": "maddpg",
     # Algorithm for adversary policies.
     "adv_policy": "maddpg",
-    # list of other agent_ids and policies to approximate (See MADDPG Section 4.2)
-    "learn_other_policies": None,
 
     # === Replay buffer ===
     # Size of the replay buffer. Note that if async_updates is set, then
     # each worker will have a replay buffer of this size.
-    "buffer_size": int(1e6),
+    "buffer_size": DEPRECATED_VALUE,
+    "replay_buffer_config": {
+        "type": "LocalReplayBuffer",
+        "capacity": int(1e6),
+    },
     # Observation compression. Note that compression makes simulation slow in
     # MPE.
     "compress_observations": False,
@@ -157,10 +160,11 @@ def before_learn_on_batch(multi_agent_batch, policies, train_batch_size, framewo
             return policy.compute_actions(obs)[0]
         new_act_n = [sampler(policy, obs) for policy, obs in zip(policies.values(), new_obs_n)]
     else:
-        target_act_sampler_n = [p.target_act_sampler for p in policies.values()]
         new_obs_ph_n = [p.new_obs_ph for p in policies.values()]
-        feed_dict = dict(zip(new_obs_ph_n, new_obs_n))
-        new_act_n = p.sess.run(target_act_sampler_n, feed_dict)
+        for i, p in enumerate(policies.values()):
+            feed_dict = {new_obs_ph_n[i]: new_obs_n[i]}
+            new_act = p.get_session().run(p.target_act_sampler, feed_dict)
+            samples.update({"new_actions_%d" % i: new_act})
 
     samples.update(
         {"new_actions_%d" % i: new_act
@@ -174,8 +178,8 @@ def before_learn_on_batch(multi_agent_batch, policies, train_batch_size, framewo
 def add_maddpg_postprocessing(config):
     """Add the before learn on batch hook.
 
-    This hook is called explicitly prior to TrainOneStep() in the execution
-    setups for DQN and APEX.
+    This hook shares the joint batches across all agents
+    for MADDPG's centralized critic update
     """
 
     def f(batch, workers, config):

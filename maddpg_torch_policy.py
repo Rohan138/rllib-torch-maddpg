@@ -7,7 +7,7 @@ from maddpg_torch_model import build_maddpg_models, _make_continuous_space
 
 from ray.rllib.utils.torch_ops import apply_grad_clipping, huber_loss, l2_loss
 from ray.rllib.utils.typing import TrainerConfigDict, TensorType, LocalOptimizer
-from ray.rllib.agents.dqn.dqn_tf_policy import _adjust_nstep
+from ray.rllib.evaluation.postprocessing import adjust_nstep
 from ray.rllib.models.modelv2 import ModelV2
 from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.policy.policy import Policy
@@ -27,8 +27,8 @@ torch, nn = try_import_torch()
 
 def validate_spaces(policy: Policy, obs_space, action_space, config) -> None:
     if isinstance(obs_space, Discrete) or isinstance(action_space, Discrete):
-        logging.warning("Discrete spaces may not work with Torch MADDPG; \
-            consider using framework=tf instead")
+        logging.warning("Discrete spaces may not work correctly with \
+        pytorch MADDPG; consider using framework=tf instead")
     policy.observation_space = _make_continuous_space(obs_space)
     policy.action_space = _make_continuous_space(action_space)
 
@@ -39,11 +39,6 @@ def build_maddpg_models_and_action_dist(policy: Policy, obs_space, action_space,
         model = build_ddpg_models(policy, obs_space, action_space, config)
     else:
         model = build_maddpg_models(policy, obs_space, action_space, config)
-    device = (torch.device("cuda")
-              if torch.cuda.is_available() else torch.device("cpu"))
-    policy.model = policy.model.to(device)
-    policy.target_model = policy.target_model.to(device)
-
     return model, TorchDeterministic
 
 
@@ -218,7 +213,7 @@ def postprocess_nstep(policy: Policy, batch: SampleBatch,
                                    other_agent_batches=None, episode=None):
     # N-step Q adjustments
     if policy.config["n_step"] > 1:
-        _adjust_nstep(policy.config["n_step"], policy.config["gamma"],
+        adjust_nstep(policy.config["n_step"], policy.config["gamma"],
                       batch[SampleBatch.CUR_OBS],
                       batch[SampleBatch.ACTIONS],
                       batch[SampleBatch.REWARDS],
@@ -300,5 +295,5 @@ MADDPGTorchPolicy = build_policy_class(
     before_loss_init=setup_late_mixins,
     make_model_and_action_dist=build_maddpg_models_and_action_dist,
     apply_gradients_fn=apply_gradients_fn,
-    mixins=[TargetNetworkMixin, ComputeTDErrorMixin]
+    mixins=[TargetNetworkMixin, ComputeTDErrorMixin, SetJointSpacesMixin]
 )

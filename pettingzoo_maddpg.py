@@ -167,7 +167,7 @@ def main(args):
             # === Multi-agent setting ===
             "multiagent": {
                 "policies": policies,
-                "policy_mapping_fn": lambda name, _: policy_ids[agents.index(name)],
+                "policy_mapping_fn": lambda name: policy_ids[agents.index(name)],
                 # Workaround because MADDPG requires agent_id: int but actual ids are strings like 'speaker_0'
             },
     
