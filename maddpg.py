@@ -9,6 +9,8 @@ For a minimal example, see rllib/examples/two_step_game.py,
 and the README for how to run with the multi-agent particle envs.
 """
 
+import numpy as np
+from gym.spaces import Box, Discrete
 import logging
 from typing import Optional, Type
 
@@ -18,6 +20,7 @@ from maddpg_tf_policy import MADDPGTFPolicy
 from maddpg_torch_policy import MADDPGTorchPolicy
 from ray.rllib.policy.policy import Policy
 from ray.rllib.utils.typing import TrainerConfigDict
+from ray.rllib.utils.error import UnsupportedSpaceException
 from ray.rllib.policy.sample_batch import SampleBatch, MultiAgentBatch
 from ray.rllib.utils import merge_dicts
 
@@ -86,6 +89,32 @@ DEFAULT_CONFIG = with_common_config({
         "replay_mode": "lockstep",
     }),
 
+    # === Exploration ===
+    "exploration_config": {
+        # DDPG uses OrnsteinUhlenbeck (stateful) noise to be added to NN-output
+        # actions (after a possible pure random phase of n timesteps).
+        "type": "OrnsteinUhlenbeckNoise",
+        # For how many timesteps should we return completely random actions,
+        # before we start adding (scaled) noise?
+        "random_timesteps": 1000,
+        # The OU-base scaling factor to always apply to action-added noise.
+        "ou_base_scale": 0.1,
+        # The OU theta param.
+        "ou_theta": 0.15,
+        # The OU sigma param.
+        "ou_sigma": 0.2,
+        # The initial noise scaling factor.
+        "initial_scale": 1.0,
+        # The final noise scaling factor.
+        "final_scale": 0.02,
+        # Timesteps over which to anneal scale (from initial to final values).
+        "scale_timesteps": 10000,
+    },
+    # Extra configuration that disables exploration.
+    "evaluation_config": {
+        "explore": False
+    },
+
     # === Optimization ===
     # Learning rate for the critic (Q-function) optimizer.
     "critic_lr": 1e-2,
@@ -109,7 +138,7 @@ DEFAULT_CONFIG = with_common_config({
     # batch of this size.
     "train_batch_size": 1024,
     # Number of env steps to optimize for before returning
-    "timesteps_per_iteration": 0,
+    "timesteps_per_iteration": 1000,
 
     # torch-specific model configs
     "twin_q": False,
@@ -134,7 +163,19 @@ DEFAULT_CONFIG = with_common_config({
 # yapf: enable
 
 
-def before_learn_on_batch(multi_agent_batch, policies, train_batch_size, framework="tf"):
+def _make_continuous_space(space):
+    if isinstance(space, Box):
+        return space
+    elif isinstance(space, Discrete):
+        return Box(low=np.zeros((space.n,)), high=np.ones((space.n,)))
+    else:
+        raise UnsupportedSpaceException("Space {} is not supported.".format(space))
+
+
+def before_learn_on_batch(
+    multi_agent_batch, policies, train_batch_size, framework="tf"
+):
+    # TODO: This should only operate on agents following maddpg, not ddpg!
     samples = {}
 
     # Modify keys.
@@ -142,8 +183,7 @@ def before_learn_on_batch(multi_agent_batch, policies, train_batch_size, framewo
         i = p.config["agent_id"]
         keys = multi_agent_batch.policy_batches[pid].keys()
         keys = ["_".join([k, str(i)]) for k in keys]
-        samples.update(
-            dict(zip(keys, multi_agent_batch.policy_batches[pid].values())))
+        samples.update(dict(zip(keys, multi_agent_batch.policy_batches[pid].values())))
 
     # Make ops and feed_dict to get "new_obs" from target action sampler.
     new_obs_n = list()
@@ -151,11 +191,15 @@ def before_learn_on_batch(multi_agent_batch, policies, train_batch_size, framewo
     for k, v in samples.items():
         if "new_obs" in k:
             new_obs_n.append(v)
-    
+
     if framework == "torch":
+
         def sampler(policy, obs):
             return policy.compute_actions(obs)[0]
-        new_act_n = [sampler(policy, obs) for policy, obs in zip(policies.values(), new_obs_n)]
+
+        new_act_n = [
+            sampler(policy, obs) for policy, obs in zip(policies.values(), new_obs_n)
+        ]
     else:
         target_act_sampler_n = [p.target_act_sampler for p in policies.values()]
         new_obs_ph_n = [p.new_obs_ph for p in policies.values()]
@@ -163,9 +207,9 @@ def before_learn_on_batch(multi_agent_batch, policies, train_batch_size, framewo
         new_act_n = p.sess.run(target_act_sampler_n, feed_dict)
 
     samples.update(
-        {"new_actions_%d" % i: new_act
-         for i, new_act in enumerate(new_act_n)})
-    
+        {"new_actions_%d" % i: new_act for i, new_act in enumerate(new_act_n)}
+    )
+
     # Share samples among agents.
     policy_batches = {pid: SampleBatch(samples) for pid in policies.keys()}
     return MultiAgentBatch(policy_batches, train_batch_size)
@@ -179,13 +223,16 @@ def add_maddpg_postprocessing(config):
     """
 
     def f(batch, workers, config):
-        policies = dict(workers.local_worker()
-                        .foreach_trainable_policy(lambda p, i: (i, p)))
-        return before_learn_on_batch(batch, policies,
-                                     config["train_batch_size"], config["framework"])
+        policies = dict(
+            workers.local_worker().foreach_trainable_policy(lambda p, i: (i, p))
+        )
+        return before_learn_on_batch(
+            batch, policies, config["train_batch_size"], config["framework"]
+        )
 
     config["before_learn_on_batch"] = f
     return config
+
 
 def get_policy_class(config: TrainerConfigDict) -> Optional[Type[Policy]]:
     """Policy class picker function. Class is chosen based on DL-framework.
@@ -200,9 +247,11 @@ def get_policy_class(config: TrainerConfigDict) -> Optional[Type[Policy]]:
     else:
         return MADDPGTFPolicy
 
+
 MADDPGTrainer = GenericOffPolicyTrainer.with_updates(
     name="MADDPG",
     default_config=DEFAULT_CONFIG,
     default_policy=MADDPGTFPolicy,
     get_policy_class=get_policy_class,
-    validate_config=add_maddpg_postprocessing)
+    validate_config=add_maddpg_postprocessing,
+)
