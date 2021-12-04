@@ -1,0 +1,5 @@
+ray[rllib,tune,default]==1.5.2
+tensorflow
+torch
+pettingzoo
+supersuit
