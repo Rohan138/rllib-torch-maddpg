@@ -113,7 +113,7 @@ DEFAULT_CONFIG = with_common_config({
     # Learning rate for the critic (Q-function) optimizer.
     "critic_lr": 1e-2,
     # Learning rate for the actor (policy) optimizer.
-    "actor_lr": 1e-3,
+    "actor_lr": 1e-2,
     # Update the target network every `target_network_update_freq` steps.
     "target_network_update_freq": 0,
     # Update the target by \tau * policy + (1-\tau) * target_policy

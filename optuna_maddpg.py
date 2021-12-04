@@ -232,8 +232,8 @@ def main(args):
             'tau': tune.loguniform(0.01, 0.5),
             'target_network_update_freq': tune.choice([0, 1, 2, 5, 10]),
             'exploration_config': {
-                'stddev': tune.choice(0.5, 0.2, 0.1),
-                "final_scale": tune.choice(0.1, 0.05, 0.02, 0.01),
+                'stddev': tune.choice([0.5, 0.2, 0.1]),
+                "final_scale": tune.choice([0.1, 0.05, 0.02, 0.01]),
             },
         },
         metric='episode_reward_mean',
