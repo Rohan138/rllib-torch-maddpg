@@ -3,6 +3,9 @@ import ray
 from ray import tune
 from ray.tune.registry import register_trainable, register_env
 from ray.rllib.env.wrappers.pettingzoo_env import ParallelPettingZooEnv
+from ray.tune.suggest import ConcurrencyLimiter
+from ray.tune.schedulers import AsyncHyperBandScheduler
+from ray.tune.suggest.optuna import OptunaSearch
 import maddpg
 import supersuit as ss
 import argparse
@@ -221,18 +224,39 @@ def main(args):
         },
     }
 
+    algo = OptunaSearch(space={
+            'actor_lr': tune.uniform(1e-4, 0.1),
+            'critic_lr': tune.uniform(1e-4, 0.1),
+            'actor_hiddens': tune.choice([32, 64, 128]),
+            'critic_hiddens': tune.choice([32, 64, 128]),
+            'tau': tune.loguniform(0.01, 0.5),
+            'target_network_update_freq': tune.choice([0, 1, 2, 5, 10]),
+        },
+        metric='episode_reward_mean',
+        mode='max',
+        )
+    algo = ConcurrencyLimiter(algo, max_concurrent=4)
+    scheduler = AsyncHyperBandScheduler(
+        time_attr='timesteps_total',
+        metric='episode_reward_mean',
+        mode='max',
+        max_t=600000,
+        grace_period=200000,
+    )
+
     tune.run(
         "maddpg",
         name=f"MADDPG/{args.framework}/{args.env_name}",
         config=config,
         progress_reporter=CLIReporter(),
-        stop={
-            "episodes_total": args.num_episodes,
-        },
+        stop={"episodes_total": args.num_episodes},
         checkpoint_freq=args.checkpoint_freq,
         local_dir=os.path.join(args.local_dir, env_name),
         restore=args.restore,
         verbose=1,
+        num_samples=4,
+        search_alg=algo,
+        scheduler=scheduler,
     )
 
 

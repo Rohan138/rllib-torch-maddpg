@@ -90,19 +90,31 @@ DEFAULT_CONFIG = with_common_config({
     }),
 
     # === Exploration ===
+    # "exploration_config": {
+    #     "type": "OrnsteinUhlenbeckNoise",
+    #     # For how many timesteps should we return completely random actions,
+    #     # before we start adding (scaled) noise?
+    #     "random_timesteps": 1000,
+    #     # The OU-base scaling factor to always apply to action-added noise.
+    #     "ou_base_scale": 0.1,
+    #     # The OU theta param.
+    #     "ou_theta": 0.15,
+    #     # The OU sigma param.
+    #     "ou_sigma": 0.2,
+    #     # The initial noise scaling factor.
+    #     "initial_scale": 1.0,
+    #     # The final noise scaling factor.
+    #     "final_scale": 0.02,
+    #     # Timesteps over which to anneal scale (from initial to final values).
+    #     "scale_timesteps": 10000,
+    # },
     "exploration_config": {
-        # DDPG uses OrnsteinUhlenbeck (stateful) noise to be added to NN-output
-        # actions (after a possible pure random phase of n timesteps).
-        "type": "OrnsteinUhlenbeckNoise",
+        "type": "GaussianNoise",
         # For how many timesteps should we return completely random actions,
         # before we start adding (scaled) noise?
         "random_timesteps": 1000,
-        # The OU-base scaling factor to always apply to action-added noise.
-        "ou_base_scale": 0.1,
-        # The OU theta param.
-        "ou_theta": 0.15,
-        # The OU sigma param.
-        "ou_sigma": 0.2,
+        # The stddev (sigma) to be used for the actions
+        "stddev": 0.5,
         # The initial noise scaling factor.
         "initial_scale": 1.0,
         # The final noise scaling factor.
@@ -119,7 +131,7 @@ DEFAULT_CONFIG = with_common_config({
     # Learning rate for the critic (Q-function) optimizer.
     "critic_lr": 1e-2,
     # Learning rate for the actor (policy) optimizer.
-    "actor_lr": 1e-2,
+    "actor_lr": 1e-3,
     # Update the target network every `target_network_update_freq` steps.
     "target_network_update_freq": 0,
     # Update the target by \tau * policy + (1-\tau) * target_policy
