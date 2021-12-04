@@ -227,8 +227,8 @@ def main(args):
     algo = OptunaSearch(space={
             'actor_lr': tune.uniform(1e-4, 0.1),
             'critic_lr': tune.uniform(1e-4, 0.1),
-            'actor_hiddens': tune.choice([32, 64, 128]),
-            'critic_hiddens': tune.choice([32, 64, 128]),
+            'actor_hiddens': tune.choice([[32] * 2, [64] * 2, [128] * 2]),
+            'critic_hiddens': tune.choice([[32] * 2, [64] * 2, [128] * 2]),
             'tau': tune.loguniform(0.01, 0.5),
             'target_network_update_freq': tune.choice([0, 1, 2, 5, 10]),
             'exploration_config': {
@@ -258,7 +258,7 @@ def main(args):
         local_dir=os.path.join(args.local_dir, env_name),
         restore=args.restore,
         verbose=1,
-        num_samples=4,
+        num_samples=32,
         search_alg=algo,
         scheduler=scheduler,
     )
