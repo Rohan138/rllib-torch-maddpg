@@ -1,14 +1,17 @@
+import argparse
+import os
+from importlib import import_module
+
 import numpy as np
 import ray
-from ray import tune
-from ray.tune.registry import register_trainable, register_env
-from ray.rllib.env.wrappers.pettingzoo_env import ParallelPettingZooEnv
-import maddpg
 import supersuit as ss
-import argparse
-from importlib import import_module
+from ray import tune
+from ray.rllib.env.wrappers.pettingzoo_env import ParallelPettingZooEnv
 from ray.tune import CLIReporter
-import os
+from ray.tune.registry import register_env, register_trainable
+
+import maddpg
+
 
 
 def parse_args():
@@ -209,7 +212,7 @@ def main(args):
         # === Multi-agent setting ===
         "multiagent": {
             "policies": policies,
-            "policy_mapping_fn": lambda name, _: policy_ids[agents.index(name)],
+            "policy_mapping_fn": lambda name: policy_ids[agents.index(name)],
             # Workaround because MADDPG requires agent_id: int but actual ids are strings like 'speaker_0'
         },
         # === Evaluation and rendering ===
@@ -223,14 +226,14 @@ def main(args):
 
     tune.run(
         "maddpg",
-        name=f"MADDPG/{args.framework}/{args.env_name}",
+        name=f"{args.env_name}/MADDPG/{args.framework}",
         config=config,
         progress_reporter=CLIReporter(),
         stop={
             "episodes_total": args.num_episodes,
         },
         checkpoint_freq=args.checkpoint_freq,
-        local_dir=os.path.join(args.local_dir, env_name),
+        local_dir=args.local_dir,
         restore=args.restore,
         verbose=1,
     )

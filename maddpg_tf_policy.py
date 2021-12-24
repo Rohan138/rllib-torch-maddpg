@@ -1,17 +1,18 @@
+import logging
+
+import numpy as np
 import ray
-from ray.rllib.agents.dqn.dqn_tf_policy import minimize_and_clip, _adjust_nstep
+from gym.spaces import Box, Discrete
+from ray.rllib.agents.dqn.dqn_tf_policy import minimize_and_clip
 from ray.rllib.evaluation.metrics import LEARNER_STATS_KEY
+from ray.rllib.evaluation.postprocessing import adjust_nstep
 from ray.rllib.models import ModelCatalog
+from ray.rllib.policy.policy import Policy
 from ray.rllib.policy.sample_batch import SampleBatch
+from ray.rllib.policy.tf_policy import TFPolicy
 from ray.rllib.utils.annotations import override
 from ray.rllib.utils.error import UnsupportedSpaceException
-from ray.rllib.policy.policy import Policy
-from ray.rllib.policy.tf_policy import TFPolicy
 from ray.rllib.utils.framework import try_import_tf, try_import_tfp
-
-import logging
-from gym.spaces import Box, Discrete
-import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +27,15 @@ class MADDPGPostprocessing:
     def postprocess_trajectory(
         self, sample_batch, other_agent_batches=None, episode=None
     ):
+        # FIXME: Get done from info is required since agentwise done is not
+        #  supported now.
+        sample_batch[SampleBatch.DONES] = self.get_done_from_info(
+            sample_batch[SampleBatch.INFOS]
+        )
 
         # N-step Q adjustments
         if self.config["n_step"] > 1:
-            _adjust_nstep(
+            adjust_nstep(
                 self.config["n_step"],
                 self.config["gamma"],
                 sample_batch[SampleBatch.CUR_OBS],
@@ -48,6 +54,10 @@ class MADDPGTFPolicy(MADDPGPostprocessing, TFPolicy):
         config = dict(ray.rllib.contrib.maddpg.DEFAULT_CONFIG, **config)
         self.config = config
         self.global_step = tf1.train.get_or_create_global_step()
+
+        # FIXME: Get done from info is required since agentwise done is not
+        # supported now.
+        self.get_done_from_info = np.vectorize(lambda info: info.get("done", False))
 
         agent_id = config["agent_id"]
         if agent_id is None:

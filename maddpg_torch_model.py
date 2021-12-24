@@ -1,29 +1,27 @@
-from numpy.core.fromnumeric import shape
-import ray
-import gym
-from gym.spaces import Discrete, Box
-import numpy as np
-from typing import List, Dict, Union
-from ray.rllib.agents.ddpg.ddpg_torch_model import DDPGTorchModel
+from typing import Dict, List, Union
 
-from ray.rllib.models.torch.misc import SlimFC
-from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
-from ray.rllib.models.utils import get_activation_fn
-from ray.rllib.policy.sample_batch import SampleBatch
-from ray.rllib.policy.view_requirement import ViewRequirement
-from ray.rllib.utils.framework import try_import_torch
-from ray.rllib.utils.typing import ModelConfigDict, TensorType
-from ray.rllib.utils.error import UnsupportedSpaceException
-from ray.rllib.policy.policy import Policy
-from ray.rllib.utils.typing import (
-    TrainerConfigDict,
-    TensorType,
-    LocalOptimizer,
-    GradInfoDict,
-)
+import gym
+import numpy as np
+import ray
+from gym.spaces import Box, Discrete
+from numpy.core.fromnumeric import shape
+from ray.rllib.agents.ddpg.ddpg_torch_model import DDPGTorchModel
 from ray.rllib.agents.ddpg.noop_model import TorchNoopModel
 from ray.rllib.models import ModelCatalog
 from ray.rllib.models.modelv2 import ModelV2
+from ray.rllib.models.torch.misc import SlimFC
+from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
+from ray.rllib.models.utils import get_activation_fn
+from ray.rllib.policy.policy import Policy
+from ray.rllib.policy.sample_batch import SampleBatch
+from ray.rllib.policy.view_requirement import ViewRequirement
+from ray.rllib.utils.error import UnsupportedSpaceException
+from ray.rllib.utils.framework import try_import_torch
+from ray.rllib.utils.typing import (
+    ModelConfigDict,
+    TensorType,
+    TrainerConfigDict,
+)
 
 torch, nn = try_import_torch()
 
@@ -162,32 +160,6 @@ class MADDPGTorchModel(TorchModelV2, nn.Module):
                 activation_fn=None,
             ),
         )
-
-        # Use sigmoid to scale to [0,1], but also double magnitude of input to
-        # emulate behaviour of tanh activation used in DDPG and TD3 papers.
-        # After sigmoid squashing, re-scale to env action space bounds.
-        class _Lambda(nn.Module):
-            def __init__(self_):
-                super().__init__()
-                low_action = nn.Parameter(
-                    torch.from_numpy(self.action_space.low).float())
-                low_action.requires_grad = False
-                self_.register_parameter("low_action", low_action)
-                action_range = nn.Parameter(
-                    torch.from_numpy(self.action_space.high -
-                                     self.action_space.low).float())
-                action_range.requires_grad = False
-                self_.register_parameter("action_range", action_range)
-
-            def forward(self_, x):
-                sigmoid_out = nn.Sigmoid()(2.0 * x)
-                squashed = self_.action_range * sigmoid_out + self_.low_action
-                return squashed
-
-        # Only squash if we have bounded actions.
-        if self.bounded:
-            self.policy_model.add_module("action_out_squashed", _Lambda())
-
         # Build MADDPG Critic and Target Critic
 
         obs_space_n = [
@@ -204,6 +176,8 @@ class MADDPGTorchModel(TorchModelV2, nn.Module):
         # Build the Q-net(s), including target Q-net(s).
         def build_q_net(name_):
             activation = get_activation_fn(critic_hidden_activation, framework="torch")
+            # For continuous actions: Feed obs and actions (concatenated)
+            # through the NN. For discrete actions, only obs.
             q_net = nn.Sequential()
             ins = self.critic_obs + self.critic_act
             for i, n in enumerate(critic_hiddens):

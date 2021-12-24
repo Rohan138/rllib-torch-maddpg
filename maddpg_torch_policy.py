@@ -1,31 +1,31 @@
 import logging
-from gym.spaces import Box, Discrete
-import numpy as np
 from typing import Dict, Tuple
 
-from maddpg_torch_model import build_maddpg_models, _make_continuous_space
-
-from ray.rllib.utils.torch_ops import apply_grad_clipping, huber_loss, l2_loss
-from ray.rllib.utils.typing import TrainerConfigDict, TensorType, LocalOptimizer
-from ray.rllib.agents.dqn.dqn_tf_policy import _adjust_nstep
-from ray.rllib.models.modelv2 import ModelV2
-from ray.rllib.policy.sample_batch import SampleBatch
-from ray.rllib.policy.policy import Policy
-from ray.rllib.policy.policy_template import build_policy_class
-from ray.rllib.utils.framework import try_import_torch
-from ray.rllib.agents.ddpg.ddpg_torch_policy import (
-    apply_gradients_fn,
-    make_ddpg_optimizers,
-    TargetNetworkMixin,
-)
+import numpy as np
+from gym.spaces import Box, Discrete
 from ray.rllib.agents.ddpg.ddpg_tf_policy import (
     build_ddpg_models,
     get_distribution_inputs_and_class,
 )
-from ray.rllib.models.action_dist import ActionDistribution
-from ray.rllib.models.torch.torch_action_dist import TorchDeterministic
+from ray.rllib.agents.ddpg.ddpg_torch_policy import (
+    TargetNetworkMixin,
+    apply_gradients_fn,
+    make_ddpg_optimizers,
+)
 from ray.rllib.agents.ddpg.noop_model import TorchNoopModel
+from ray.rllib.evaluation.postprocessing import adjust_nstep
 from ray.rllib.models import ModelCatalog
+from ray.rllib.models.action_dist import ActionDistribution
+from ray.rllib.models.modelv2 import ModelV2
+from ray.rllib.models.torch.torch_action_dist import TorchDeterministic
+from ray.rllib.policy.policy import Policy
+from ray.rllib.policy.policy_template import build_policy_class
+from ray.rllib.policy.sample_batch import SampleBatch
+from ray.rllib.utils.framework import try_import_torch
+from ray.rllib.utils.torch_utils import apply_grad_clipping, huber_loss, l2_loss
+from ray.rllib.utils.typing import LocalOptimizer, TensorType, TrainerConfigDict
+
+from maddpg_torch_model import _make_continuous_space, build_maddpg_models
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,11 @@ torch, nn = try_import_torch()
 
 
 def validate_spaces(policy: Policy, obs_space, action_space, config) -> None:
+    if isinstance(obs_space, Discrete) or isinstance(action_space, Discrete):
+        logging.warning(
+            "Discrete spaces may not work correctly with \
+        pytorch MADDPG; consider using framework=tf instead"
+        )
     policy.observation_space = _make_continuous_space(obs_space)
     policy.action_space = _make_continuous_space(action_space)
 
@@ -233,7 +238,7 @@ def build_maddpg_stats(policy: Policy, batch: SampleBatch) -> Dict[str, TensorTy
         "max_q": torch.max(policy.q_t),
         "min_q": torch.min(policy.q_t),
         "mean_td_error": torch.mean(policy.td_error),
-        "td_error": policy.td_error
+        "td_error": policy.td_error,
     }
     return stats
 
@@ -243,7 +248,7 @@ def postprocess_nstep(
 ):
     # N-step Q adjustments
     if policy.config["n_step"] > 1:
-        _adjust_nstep(
+        adjust_nstep(
             policy.config["n_step"],
             policy.config["gamma"],
             batch[SampleBatch.CUR_OBS],
