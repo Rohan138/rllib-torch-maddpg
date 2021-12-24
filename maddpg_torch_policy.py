@@ -46,10 +46,11 @@ def build_maddpg_models_and_action_dist(
     policy: Policy, obs_space, action_space, config: TrainerConfigDict
 ) -> Tuple[ModelV2, ActionDistribution]:
 
-    if policy.config["use_local_critic"]:
-        model = build_ddpg_models(policy, obs_space, action_space, config)
-    else:
-        model = build_maddpg_models(policy, obs_space, action_space, config)
+    model = build_maddpg_models(policy, policy.observation_space, policy.action_space, config)
+    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+    policy.model = policy.model.to(device)
+    policy.target_model = policy.target_model.to(device)
+
     return model, TorchDeterministic
 
 
@@ -322,6 +323,7 @@ def setup_late_mixins(
 
 
 def get_default_config():
+    # Hacky workaround to fix imports
     import maddpg
 
     return maddpg.DEFAULT_CONFIG

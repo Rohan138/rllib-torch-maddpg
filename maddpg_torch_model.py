@@ -18,8 +18,6 @@ from ray.rllib.policy.view_requirement import ViewRequirement
 from ray.rllib.utils.error import UnsupportedSpaceException
 from ray.rllib.utils.framework import try_import_torch
 from ray.rllib.utils.typing import (
-    GradInfoDict,
-    LocalOptimizer,
     ModelConfigDict,
     TensorType,
     TrainerConfigDict,
@@ -50,7 +48,7 @@ def build_maddpg_models(
         config["model"]["no_final_linear"] = True
     else:
         default_model = TorchNoopModel
-        num_outputs = int(np.product(obs_space.shape))
+        num_outputs = np.prod(obs_space.shape)
 
     policy.model = ModelCatalog.get_model_v2(
         obs_space=obs_space,
@@ -127,11 +125,13 @@ class MADDPGTorchModel(TorchModelV2, nn.Module):
             self, observation_space, action_space, num_outputs, model_config, name
         )
 
-        self.action_dim = np.prod(action_space.shape)
+        self.bounded = np.logical_and(self.action_space.bounded_above,
+                                      self.action_space.bounded_below).any()
+        self.action_dim = np.product(self.action_space.shape)
 
         # Build the policy network.
         self.policy_model = nn.Sequential()
-        ins = np.prod(observation_space.shape)
+        ins = int(np.product(observation_space.shape))
         self.obs_ins = ins
         activation = get_activation_fn(actor_hidden_activation, framework="torch")
         for i, n in enumerate(actor_hiddens):
@@ -160,7 +160,6 @@ class MADDPGTorchModel(TorchModelV2, nn.Module):
                 activation_fn=None,
             ),
         )
-
         # Build MADDPG Critic and Target Critic
 
         obs_space_n = [
@@ -219,14 +218,6 @@ class MADDPGTorchModel(TorchModelV2, nn.Module):
             data_col=SampleBatch.OBS, shift=1, space=self.obs_space
         )
 
-        # TODO: This shouldn't be necessary? Looks like the target_model isn't
-        # being moved to the gpu automatically, need to fix this somewhere
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.policy_model = self.policy_model.to(device)
-        self.q_model = self.q_model.to(device)
-        if twin_q:
-            self.twin_q_model = self.twin_q_model.to(device)
-
     def get_q_values(
         self, model_out_n: List[TensorType], act_n: List[TensorType]
     ) -> TensorType:
@@ -263,18 +254,14 @@ class MADDPGTorchModel(TorchModelV2, nn.Module):
 
     def get_policy_output(self, model_out: TensorType) -> TensorType:
         """Return the action output for the most recent forward pass.
-        This outputs the logits over the action space.
+        This outputs the logits over the action space for discrete actions.
         Args:
             model_out (Tensor): obs embeddings from the model layers, of shape
                 [BATCH_SIZE, num_outputs].
         Returns:
             tensor of shape [BATCH_SIZE, action_out_size]
         """
-        out = self.policy_model(model_out)
-        dist = torch.distributions.RelaxedOneHotCategorical(temperature=1.0, logits=out)
-        action = dist.sample()
-        entropy = dist.base_dist._categorical.entropy()
-        return action
+        return self.policy_model(model_out)
 
     def policy_variables(
         self, as_dict: bool = False

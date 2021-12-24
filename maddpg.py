@@ -9,6 +9,8 @@ For a minimal example, see rllib/examples/two_step_game.py,
 and the README for how to run with the multi-agent particle envs.
 """
 
+import numpy as np
+from gym.spaces import Box, Discrete
 import logging
 from typing import Optional, Type
 
@@ -16,7 +18,9 @@ from ray.rllib.agents.dqn.dqn import DQNTrainer
 from ray.rllib.agents.dqn.simple_q import DEFAULT_CONFIG as SIMPLEQ_DEFAULT_CONFIG
 from ray.rllib.agents.trainer import COMMON_CONFIG, Trainer
 from ray.rllib.policy.policy import Policy
-from ray.rllib.policy.sample_batch import MultiAgentBatch, SampleBatch
+from ray.rllib.utils.typing import TrainerConfigDict
+from ray.rllib.utils.error import UnsupportedSpaceException
+from ray.rllib.policy.sample_batch import SampleBatch, MultiAgentBatch
 from ray.rllib.utils import merge_dicts
 from ray.rllib.utils.annotations import override
 from ray.rllib.utils.deprecation import DEPRECATED_VALUE

@@ -1,39 +1,104 @@
-import argparse
-import os
-from importlib import import_module
-
+import gym
 import numpy as np
 import ray
-import supersuit as ss
 from ray import tune
-from ray.rllib.env.wrappers.pettingzoo_env import ParallelPettingZooEnv
-from ray.tune import CLIReporter
-from ray.tune.registry import register_env, register_trainable
-
 import maddpg
+from ray.tune.registry import register_env
+from ray.rllib.env.multi_agent_env import MultiAgentEnv
+import argparse
+from ray.tune import CLIReporter
+import os
 
+
+class SingleAgentTestEnv(MultiAgentEnv):
+    def __init__(
+        self,
+        max_len=1,
+        obs_shape=(1,),
+        act_shape = (1,)
+    ):
+        self.num_agents = 1
+        self.agent_id = "agent"
+        self.agents = ["agent"]
+        self.observation_spaces = {
+            "agent": gym.spaces.Box(0, 1, obs_shape)
+        }
+        self.action_spaces = {"agent": gym.spaces.Box(0, 1, act_shape)}
+        self.obs_shape = obs_shape
+        self.max_len = max_len
+
+    def reset(self):
+        self.dt = 0
+        self.obs = np.zeros(self.obs_shape, dtype=np.float32)
+        return {self.agent_id: self.obs}
+
+    def step(self, actions):
+        self.dt += 1
+        action = actions[self.agent_id]
+        assert self.dt <= self.max_len, "Environment should be reset on done"
+        assert self.action_spaces[self.agent_id].contains(action)
+        self.obs = np.zeros(self.obs_shape, dtype=np.float32)
+        reward = np.array([1 - action])
+        done = np.array([self.dt == self.max_len], dtype=bool)
+        return (
+            {self.agent_id: self.obs},
+            {self.agent_id: reward},
+            {self.agent_id: done, "__all__": self.dt == self.max_len},
+            {self.agent_id: None},
+        )
+
+    def render(self):
+        return
+
+
+class MultiAgentTestEnv(MultiAgentEnv):
+    def __init__(self, num_agents=5):
+        self.num_agents = num_agents
+        self.agents = {"agent_%d" % i for i in range(self.num_agents)}
+        self.observation_spaces = {
+            agent: gym.spaces.Box(0, 1, (1,)) for agent in self.agents
+        }
+        self.action_spaces = {agent: gym.spaces.Discrete(2) for agent in self.agents}
+        self.obs = np.zeros([self.num_agents])
+
+    def reset(self):
+        self.obs = np.zeros([self.num_agents])
+        return self.observe()
+
+    def observe(self):
+        return {agent: np.array([self.obs[i]]) for i, agent in enumerate(self.agents)}
+
+    def state(self):
+        return np.array(self.obs)
+
+    def step(self, actions):
+        self.obs = [actions[agent] for agent in self.agents]
+        reward = 1 if np.all(self.obs) == 1 else 0
+        return (
+            self.observe(),
+            {agent: reward for agent in self.agents},
+            {agent: False for agent in self.agents},
+            None,
+        )
+
+    def render(self):
+        return
+
+    def close(self):
+        return
 
 
 def parse_args():
     # Environment
-    parser = argparse.ArgumentParser("RLLib MADDPG with PettingZoo environments")
+    parser = argparse.ArgumentParser(
+        "RLLib MADDPG with test environments from"
+        + "Andy Jones' Debugging Deep RL Advice"
+    )
 
-    parser.add_argument(
-        "--env-type",
-        choices=["mpe", "sisl", "atari", "butterfly", "classic", "magent"],
-        default="mpe",
-        help="The PettingZoo environment type",
-    )
-    parser.add_argument(
-        "--env-name",
-        type=str,
-        default="simple_spread_v2",
-        help="The PettingZoo environment to use",
-    )
     parser.add_argument(
         "--framework",
         choices=["tf", "tf2", "tfe", "torch"],
-        default="tf",
+        default="torch",
         help="The DL framework specifier.",
     )
     parser.add_argument(
@@ -60,7 +125,7 @@ def parse_args():
 
     # Core training parameters
     parser.add_argument(
-        "--lr", type=float, default=1e-3, help="learning rate for Adam optimizer"
+        "--lr", type=float, default=1e-2, help="learning rate for Adam optimizer"
     )
     parser.add_argument("--gamma", type=float, default=0.95, help="discount factor")
     parser.add_argument(
@@ -87,25 +152,11 @@ def parse_args():
         default=1000000,
         help="size of replay buffer in training",
     )
-
-    # Checkpoint
-    parser.add_argument(
-        "--checkpoint-freq",
-        type=int,
-        default=10000,
-        help="save model once every time this many iterations are completed",
-    )
     parser.add_argument(
         "--local-dir",
         type=str,
         default="~/ray_results",
         help="path to save checkpoints",
-    )
-    parser.add_argument(
-        "--restore",
-        type=str,
-        default=None,
-        help="directory in which training state and model are loaded",
     )
 
     # Parallelism
@@ -113,49 +164,20 @@ def parse_args():
     parser.add_argument("--num-envs-per-worker", type=int, default=4)
     parser.add_argument("--num-gpus", type=int, default=0)
 
-    # Evaluation
-    parser.add_argument(
-        "--eval-freq",
-        type=int,
-        default=0,
-        help="evaluate model every time this many iterations are completed",
-    )
-    parser.add_argument(
-        "--eval-num-episodes",
-        type=int,
-        default=5,
-        help="Number of episodes to run for evaluation",
-    )
-    parser.add_argument(
-        "--render", type=bool, default=False, help="render environment for evaluation"
-    )
-    parser.add_argument(
-        "--record", type=str, default=None, help="path to store evaluation videos"
-    )
     return parser.parse_args()
 
 
 def main(args):
     ray.init()
     MADDPGAgent = maddpg.MADDPGTrainer
-    env_name = args.env_name
-    env_str = "pettingzoo." + args.env_type + "." + env_name
+    env_name = "test"
 
     def env_creator(config):
-        env = import_module(env_str)
-        env = env.parallel_env(max_cycles=args.max_episode_len, continuous_actions=True)
-        env = ss.pad_observations_v0(env)
-        env = ss.pad_action_space_v0(env)
+        env = SingleAgentTestEnv()
         return env
-    
-    register_trainable("maddpg", MADDPGAgent)
-    register_env(env_name, lambda config: ParallelPettingZooEnv(env_creator(config)))
 
-    env = ParallelPettingZooEnv(env_creator(args))
-    obs_space = env.observation_spaces
-    act_space = env.action_spaces
-    print("observation spaces: ", obs_space)
-    print("action spaces: ", act_space)
+    register_env(env_name, lambda config: env_creator(config))
+    env = env_creator(None)
     agents = env.agents
 
     def gen_policy(i):
@@ -168,7 +190,7 @@ def main(args):
         return (
             None,
             env.observation_spaces[agents[i]],
-            env.action_spaces[agents[i]],
+            maddpg._make_continuous_space(env.action_spaces[agents[i]]),
             {
                 "agent_id": i,
                 "use_local_critic": use_local_critic[i],
@@ -185,7 +207,6 @@ def main(args):
         "env": env_name,
         "num_workers": args.num_workers,
         "num_gpus": args.num_gpus,
-        "num_gpus_per_worker": 0,
         "num_envs_per_worker": args.num_envs_per_worker,
         "horizon": args.max_episode_len,
         # === Policy Config ===
@@ -212,30 +233,21 @@ def main(args):
         # === Multi-agent setting ===
         "multiagent": {
             "policies": policies,
-            "policy_mapping_fn": lambda name: policy_ids[agents.index(name)],
+            "policy_mapping_fn": lambda name, _: policy_ids[agents.index(name)],
             # Workaround because MADDPG requires agent_id: int but actual ids are strings like 'speaker_0'
-        },
-        # === Evaluation and rendering ===
-        "evaluation_interval": args.eval_freq,
-        "evaluation_num_episodes": args.eval_num_episodes,
-        "evaluation_config": {
-            "record_env": args.record,
-            "render_env": args.render,
         },
     }
 
     tune.run(
-        "maddpg",
-        name=f"{args.env_name}/MADDPG/{args.framework}",
+        MADDPGAgent,
+        name="Torch_MADDPG",
         config=config,
         progress_reporter=CLIReporter(),
         stop={
             "episodes_total": args.num_episodes,
         },
-        checkpoint_freq=args.checkpoint_freq,
-        local_dir=args.local_dir,
-        restore=args.restore,
-        verbose=1,
+        local_dir=os.path.join(args.local_dir, env_name),
+        verbose=2,
     )
 
 
