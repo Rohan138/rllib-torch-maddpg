@@ -224,7 +224,7 @@ def main(args):
 
     tune.run(
         MADDPGAgent,
-        name="Torch_MADDPG",
+        name=f"MADDPG/{args.framework}/{args.env_name}",
         config=config,
         progress_reporter=CLIReporter(),
         stop={

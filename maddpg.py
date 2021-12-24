@@ -13,8 +13,7 @@ import logging
 from typing import Optional, Type
 
 from ray.rllib.agents.dqn.dqn import DQNTrainer
-from ray.rllib.agents.dqn.simple_q import \
-    DEFAULT_CONFIG as SIMPLEQ_DEFAULT_CONFIG
+from ray.rllib.agents.dqn.simple_q import DEFAULT_CONFIG as SIMPLEQ_DEFAULT_CONFIG
 from ray.rllib.agents.trainer import COMMON_CONFIG, Trainer
 from ray.rllib.policy.policy import Policy
 from ray.rllib.policy.sample_batch import MultiAgentBatch, SampleBatch
@@ -29,13 +28,14 @@ from maddpg_torch_policy import MADDPGTorchPolicy
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+
 def maddpg_learn_on_batch(multi_agent_batch, workers, config):
     policies = dict(
         workers.local_worker().foreach_trainable_policy(lambda p, i: (i, p))
     )
     samples = {}
     train_batch_size = config["train_batch_size"]
-    framework= config["framework"]
+    framework = config["framework"]
 
     # Modify keys.
     for pid, p in policies.items():
@@ -73,6 +73,7 @@ def maddpg_learn_on_batch(multi_agent_batch, workers, config):
     # Share samples among agents.
     policy_batches = {pid: SampleBatch(samples) for pid in policies.keys()}
     return MultiAgentBatch(policy_batches, train_batch_size)
+
 
 # yapf: disable
 # __sphinx_doc_begin__
@@ -165,28 +166,26 @@ DEFAULT_CONFIG = Trainer.merge_trainer_configs(
         # batch of this size.
         "train_batch_size": 1024,
         # Number of env steps to optimize for before returning
-        "timesteps_per_iteration": 0,
+        "timesteps_per_iteration": 1000,
 
         # === Exploration ===
         "exploration_config": {
-            # DDPG uses OrnsteinUhlenbeck (stateful) noise to be added to NN-output
-            # actions (after a possible pure random phase of n timesteps).
-            "type": "OrnsteinUhlenbeckNoise",
+            "type": "GaussianNoise",
             # For how many timesteps should we return completely random actions,
             # before we start adding (scaled) noise?
             "random_timesteps": 1000,
-            # The OU-base scaling factor to always apply to action-added noise.
-            "ou_base_scale": 0.1,
-            # The OU theta param.
-            "ou_theta": 0.15,
-            # The OU sigma param.
-            "ou_sigma": 0.2,
+            # The stddev (sigma) to be used for the actions
+            "stddev": 0.5,
             # The initial noise scaling factor.
             "initial_scale": 1.0,
             # The final noise scaling factor.
             "final_scale": 0.02,
             # Timesteps over which to anneal scale (from initial to final values).
             "scale_timesteps": 10000,
+        },
+        # Extra configuration that disables exploration.
+        "evaluation_config": {
+            "explore": False
         },
 
         # torch-specific model configs

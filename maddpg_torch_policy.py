@@ -4,10 +4,14 @@ from typing import Dict, Tuple
 import numpy as np
 from gym.spaces import Box, Discrete
 from ray.rllib.agents.ddpg.ddpg_tf_policy import (
-    build_ddpg_models, get_distribution_inputs_and_class)
-from ray.rllib.agents.ddpg.ddpg_torch_policy import (TargetNetworkMixin,
-                                                     apply_gradients_fn,
-                                                     make_ddpg_optimizers)
+    build_ddpg_models,
+    get_distribution_inputs_and_class,
+)
+from ray.rllib.agents.ddpg.ddpg_torch_policy import (
+    TargetNetworkMixin,
+    apply_gradients_fn,
+    make_ddpg_optimizers,
+)
 from ray.rllib.agents.ddpg.noop_model import TorchNoopModel
 from ray.rllib.evaluation.postprocessing import adjust_nstep
 from ray.rllib.models import ModelCatalog
@@ -18,10 +22,8 @@ from ray.rllib.policy.policy import Policy
 from ray.rllib.policy.policy_template import build_policy_class
 from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.utils.framework import try_import_torch
-from ray.rllib.utils.torch_utils import (apply_grad_clipping, huber_loss,
-                                         l2_loss)
-from ray.rllib.utils.typing import (LocalOptimizer, TensorType,
-                                    TrainerConfigDict)
+from ray.rllib.utils.torch_utils import apply_grad_clipping, huber_loss, l2_loss
+from ray.rllib.utils.typing import LocalOptimizer, TensorType, TrainerConfigDict
 
 from maddpg_torch_model import _make_continuous_space, build_maddpg_models
 
