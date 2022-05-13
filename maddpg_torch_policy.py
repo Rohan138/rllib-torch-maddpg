@@ -13,16 +13,16 @@ from ray.rllib.agents.ddpg.ddpg_torch_policy import (
     make_ddpg_optimizers,
 )
 from ray.rllib.agents.ddpg.noop_model import TorchNoopModel
-from ray.rllib.evaluation.postprocessing import adjust_nstep
 from ray.rllib.models import ModelCatalog
 from ray.rllib.models.action_dist import ActionDistribution
 from ray.rllib.models.modelv2 import ModelV2
 from ray.rllib.models.torch.torch_action_dist import TorchDeterministic
 from ray.rllib.policy.policy import Policy
 from ray.rllib.policy.policy_template import build_policy_class
+from ray.rllib.agents.dqn.dqn_tf_policy import _adjust_nstep
 from ray.rllib.policy.sample_batch import SampleBatch
 from ray.rllib.utils.framework import try_import_torch
-from ray.rllib.utils.torch_utils import apply_grad_clipping, huber_loss, l2_loss
+from ray.rllib.utils.torch_ops import apply_grad_clipping, huber_loss, l2_loss
 from ray.rllib.utils.typing import LocalOptimizer, TensorType, TrainerConfigDict
 
 from maddpg_torch_model import _make_continuous_space, build_maddpg_models
@@ -248,7 +248,7 @@ def postprocess_nstep(
 ):
     # N-step Q adjustments
     if policy.config["n_step"] > 1:
-        adjust_nstep(
+        _adjust_nstep(
             policy.config["n_step"],
             policy.config["gamma"],
             batch[SampleBatch.CUR_OBS],

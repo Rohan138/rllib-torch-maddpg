@@ -3,9 +3,8 @@ import logging
 import numpy as np
 import ray
 from gym.spaces import Box, Discrete
-from ray.rllib.agents.dqn.dqn_tf_policy import minimize_and_clip
+from ray.rllib.agents.dqn.dqn_tf_policy import minimize_and_clip, _adjust_nstep
 from ray.rllib.evaluation.metrics import LEARNER_STATS_KEY
-from ray.rllib.evaluation.postprocessing import adjust_nstep
 from ray.rllib.models import ModelCatalog
 from ray.rllib.policy.policy import Policy
 from ray.rllib.policy.sample_batch import SampleBatch
@@ -35,7 +34,7 @@ class MADDPGPostprocessing:
 
         # N-step Q adjustments
         if self.config["n_step"] > 1:
-            adjust_nstep(
+            _adjust_nstep(
                 self.config["n_step"],
                 self.config["gamma"],
                 sample_batch[SampleBatch.CUR_OBS],
